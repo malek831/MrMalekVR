@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>VR Mr Malek Academy - Pro with Avatar</title>
+    <!-- مكتبة A-Frame للواقع الافتراضي -->
+    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+    <!-- مكتبة الذكاء الاصطناعي لتتبع اليدين (MediaPipe Hands) -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            font-family: Arial, sans-serif;
+        }
+
+        /* شاشة البداية */
+        #start-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            cursor: pointer;
+            color: #fff;
+            text-align: center;
+        }
+
+        #start-screen h1 {
+            font-size: 32px;
+            color: #00ffcc;
+            margin-bottom: 15px;
+            text-shadow: 0 0 15px rgba(0, 255, 204, 0.6);
+        }
+
+        #start-screen p {
+            font-size: 18px;
+            color: #ccc;
+            background: rgba(0, 255, 204, 0.1);
+            padding: 12px 24px;
+            border-radius: 30px;
+            border: 1px solid #00ffcc;
+        }
+
+        /* لوحة معلومات في الشمال ومش على الآخر */
+        #left-hud {
+            position: fixed;
+            top: 25px;
+            left: 30px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 2px solid #00ffcc;
+            color: #00ffcc;
+            padding: 12px 20px;
+            border-radius: 15px;
+            font-size: 14px;
+            z-index: 9996;
+            display: none;
+            backdrop-filter: blur(5px);
+            box-shadow: 0 0 15px rgba(0, 255, 204, 0.3);
+            pointer-events: none;
+        }
+
+        /* شاشة العداد التنازلي */
+        #countdown-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 9998;
+            color: #00ffcc;
+            font-size: 130px;
+            font-weight: bold;
+            text-shadow: 0 0 30px rgba(0, 255, 204, 0.9);
+        }
+
+        /* حاوية مشهد الـ VR */
+        #vr-scene-container {
+            width: 100%;
+            height: 100%;
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 1;
+            display: none;
+        }
+
+        /* كنفاس رسم الإيدين الهولوجرامي */
+        #hand-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 9997;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- شاشة البداية -->
+    <div id="start-screen" onclick="startExperience()">
+        <h1>VR Mr Malek Academy</h1>
+        <p>اضغط لبدء الحصة (مستر ملك متواجد ويتكلم معك!) 🕶️✨</p>
+    </div>
+
+    <!-- لوحة المؤشر في الشمال ومش على الآخر -->
+    <div id="left-hud">
+        <b>حالة الطالب:</b> مستعد للحل 🎓<br>
+        <span id="hud-status" style="color: #fff;">انظر إلى ورقة الأسئلة للتقدم نحوها</span>
+    </div>
+
+    <!-- شاشة العداد التنازلي -->
+    <div id="countdown-overlay">5</div>
+
+    <!-- كنفاس رسم الإيدين -->
+    <canvas id="hand-canvas"></canvas>
+
+    <!-- مشهد الـ VR الافتراضي -->
+    <div id="vr-scene-container">
+        <a-scene embedded vr-mode-ui="enabled: false">
+            <a-assets>
+                <video id="introVideo" src="https://files.catbox.moe/vp41v3.mp4" crossorigin="anonymous" playsinline webkit-playsinline muted></video>
+                <!-- صور مستر ملك المتحدثة -->
+                <img id="imgNormal" src="https://files.catbox.moe/z9dzog.jpg" crossorigin="anonymous">
+                <img id="imgOpen" src="https://files.catbox.moe/t0ws0j.jpg" crossorigin="anonymous">
+                <img id="imgClosed" src="https://files.catbox.moe/qo47ed.jpg" crossorigin="anonymous">
+            </a-assets>
+
+            <!-- خلفية سوداء أثناء الفيديو والترحيب -->
+            <a-sky id="environmentSky" color="#000000"></a-sky>
+
+            <!-- شاشة الفيديو العادية ونص الترحيب -->
+            <a-plane id="videoPlane" material="src: #introVideo; shader: flat" width="2.8" height="1.5" visible="false"></a-plane>
+            <a-text id="welcomeText" value="" align="center" color="#00ffcc" width="4" visible="false"></a-text>
+
+            <!-- مجموعة عناصر فصل المدرسة والتعليم -->
+            <a-entity id="schoolClassroom" visible="false">
+                <!-- أرضية وسقف وحوائط الفصل -->
+                <a-plane position="0 0 0" rotation="-90 0 0" width="20" height="20" color="#8B5A2B"></a-plane>
+                <a-plane position="0 5 0" rotation="90 0 0" width="20" height="20" color="#E0E0E0"></a-plane>
+                <a-box position="0 2.5 -10" width="20" height="5" depth="0.2" color="#D1E8E2"></a-box>
+                <a-box position="-10 2.5 0" width="0.2" height="5" depth="20" color="#D1E8E2"></a-box>
+                <a-box position="10 2.5 0" width="0.2" height="5" depth="20" color="#D1E8E2"></a-box>
+
+                <!-- 1. مستر ملك (الشخصية المتحدثة بصوره الثلاثة) -->
+                <a-plane id="teacherAvatar" material="src: #imgNormal; shader: flat" position="-2.2 2.6 -6" width="1.4" height="1.8"></a-plane>
+                <a-text value="مستر ملك (المعلم)" position="-2.2 1.5 -6" align="center" color="#00ffcc" width="2.5"></a-text>
+
+                <!-- 2. السبورة الذكية -->
+                <a-plane id="blackboard" class="interactive" position="1 3 -9.8" width="5" height="2.5" color="#1B4D3E"></a-plane>
+                <a-text id="boardText" value="مرحباً بك في حصة مستر ملك! انظر هنا لتغيير الدرس" position="1 3.8 -9.7" align="center" color="#FFF" width="4.5"></a-text>
+
+                <!-- 3. كوكب المريخ التعليمي العائم -->
+                <a-sphere id="eduPlanet" class="interactive" position="0 2.2 -1.5" radius="0.25" color="#ff4500" 
+                          animation="property: rotation; to: 0 360 0; loop: true; dur: 4000"></a-sphere>
+                <a-text id="planetText" value="كوكب المريخ التعليمي" position="0 2.6 -1.5" align="center" color="#00ffcc" width="2.5"></a-text>
+
+                <!-- 4. التخته الخاصة بك -->
+                <a-box position="0 0.8 -1.5" width="1.4" height="0.1" depth="0.7" color="#5C4033"></a-box>
+                <a-cylinder position="-0.6 0.4 -1.2" radius="0.04" height="0.8" color="#333"></a-cylinder>
+                <a-cylinder position="0.6 0.4 -1.2" radius="0.04" height="0.8" color="#333"></a-cylinder>
+                <a-cylinder position="-0.6 0.4 -1.8" radius="0.04" height="0.8" color="#333"></a-cylinder>
+                <a-cylinder position="0.6 0.4 -1.8" radius="0.04" height="0.8" color="#333"></a-cylinder>
+
+                <!-- 5. ورقة الأسئلة والتحديات على الترابيزة -->
+                <a-plane id="quizPaper" class="interactive" position="0 0.86 -1.5" rotation="-90 0 0" width="0.5" height="0.35" color="#FFFFF0" material="shader: flat"></a-plane>
+                <a-text id="quizText" value="سؤال: كم ناتج 2 + 3 ؟\n(انظر هنا للتقدم والحل)" position="0 0.87 -1.45" rotation="-90 0 0" align="center" color="#111" width="1.1"></a-text>
+            </a-entity>
+
+            <!-- نظام الكاميرا مع Rig للحركة والجيروسكوب معاً -->
+            <a-entity id="cameraRig" position="0 0 0">
+                <a-camera id="cam" position="0 1.2 0" look-controls="enabled: true">
+                    <a-cursor id="vr-cursor" 
+                              fuse="true" 
+                              fuseTimeout="1500" 
+                              raycaster="objects: .interactive"
+                              position="0 0 -1"
+                              geometry="primitive: ring; radiusInner: 0.012; radiusOuter: 0.018"
+                              material="color: #00ffcc; shader: flat"
+                              animation__fusing="property: scale; startEvents: fusing; from: 1 1 1; to: 0.2 0.2 0.2; dur: 1500"
+                              animation__mouseleave="property: scale; startEvents: mouseleave; from: 0.2 0.2 0.2; to: 1 1 1; dur: 100">
+                    </a-cursor>
+                </a-camera>
+            </a-entity>
+        </a-scene>
+    </div>
+
+    <script>
+        // تفعيل الأحداث بعد تحميل المشهد
+        document.addEventListener("DOMContentLoaded", () => {
+            document.getElementById('blackboard').addEventListener('click', onBlackboardLook);
+            document.getElementById('eduPlanet').addEventListener('click', onPlanetLook);
+            document.getElementById('quizPaper').addEventListener('click', onQuizPaperLook);
+        });
+
+        let talkInterval = null;
+
+        // دالة نطق الصوت وتفعيل حركة شفايف مستر ملك بالصور الثلاثة (Lip-sync)
+        function speak(text) {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                let utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'ar-SA';
+                utterance.rate = 1.0;
+
+                let teacherAvatar = document.getElementById('teacherAvatar');
+                let frameToggle = false;
+
+                // عندما يبدأ الكلام، ابدأ بتبديل الصور بسرعة (ماما ماما...)
+                utterance.onstart = function() {
+                    if (talkInterval) clearInterval(talkInterval);
+                    talkInterval = setInterval(() => {
+                        if (teacherAvatar) {
+                            frameToggle = !frameToggle;
+                            // التبديل بين صورة فتح الفم والصورة الأخرى
+                            let nextImg = frameToggle ? '#imgOpen' : '#imgClosed';
+                            teacherAvatar.setAttribute('material', 'src', nextImg);
+                        }
+                    }, 140); // سرعة تبديل الشفايف أثناء الكلام
+                };
+
+                // عندما ينتهي الكلام، ارجع للصورة الأصلية الثابتة
+                utterance.onend = function() {
+                    if (talkInterval) {
+                        clearInterval(talkInterval);
+                        talkInterval = null;
+                    }
+                    if (teacherAvatar) {
+                        teacherAvatar.setAttribute('material', 'src', '#imgNormal');
+                    }
+                };
+
+                utterance.onerror = function() {
+                    if (talkInterval) {
+                        clearInterval(talkInterval);
+                        talkInterval = null;
+                    }
+                    if (teacherAvatar) {
+                        teacherAvatar.setAttribute('material', 'src', '#imgNormal');
+                    }
+                };
+
+                window.speechSynthesis.speak(utterance);
+            }
+        }
+
+        // دالة تحريك الكاميرا بسلاسة نحو الهدف مع بقاء الجيروسكوب شغال
+        function moveCameraTo(targetZ, callback) {
+            let rig = document.getElementById('cameraRig');
+            let startZ = rig.object3D.position.z;
+            let distance = targetZ - startZ;
+            let duration = 1000;
+            let startTime = null;
+
+            function animateMotion(time) {
+                if (!startTime) startTime = time;
+                let elapsed = time - startTime;
+                let progress = Math.min(elapsed / duration, 1);
+                
+                let easeProgress = progress < 0.5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
+                
+                rig.object3D.position.z = startZ + (distance * easeProgress);
+
+                if (progress < 1) {
+                    requestAnimationFrame(animateMotion);
+                } else {
+                    if (callback) callback();
+                }
+            }
+            requestAnimationFrame(animateMotion);
+        }
+
+        // مراحل السبورة الذكية
+        let boardStage = 0;
+        function onBlackboardLook() {
+            let boardText = document.getElementById('boardText');
+            boardStage = (boardStage + 1) % 3;
+            
+            if (boardStage === 1) {
+                boardText.setAttribute('value', 'درس اليوم: الحساب والرياضيات المتطورة!');
+                speak('أهلاً بك في درس الرياضيات يا بطل!');
+            } else if (boardStage === 2) {
+                boardText.setAttribute('value', 'درس العلوم: استكشاف الفضاء والكواكب!');
+                speak('انظر إلى الكوكب فوق الترابيزة لتعرف معلومات عنه!');
+            } else {
+                boardText.setAttribute('value', 'أنت متميز جداً يا ملك في قاعة الأذكياء!');
+                speak('استمر في التميز والتعلم يا ملك!');
+            }
+        }
+
+        // تفاعل كوكب المريخ التعليمي
+        function onPlanetLook() {
+            let planetText = document.getElementById('planetText');
+            planetText.setAttribute('value', 'كوكب المريخ: الكوكب الأحمر المذهل!');
+            speak('هذا هو كوكب المريخ، يسمى بالكوكب الأحمر لجمال تضاريسه!');
+        }
+
+        // تفاعل ورقة الأسئلة: تحريك الكاميرا إليها وبدء الحل فوراً
+        let quizStage = 0;
+        function onQuizPaperLook() {
+            let quizText = document.getElementById('quizText');
+            let hudStatus = document.getElementById('hud-status');
+
+            moveCameraTo(-0.7, () => {
+                quizStage = (quizStage + 1) % 3;
+
+                if (quizStage === 1) {
+                    quizText.setAttribute('value', 'إجابة صحيحة! 2 + 3 = 5 ممتاز!');
+                    hudStatus.innerText = 'أحسنت! تم حل السؤال الأول بنجاح';
+                    speak('إجابة صحيحة، أحسنت يا بطل!');
+                } else if (quizStage === 2) {
+                    quizText.setAttribute('value', 'سؤال جديد: ما لون السماء الصافية؟\nأ) أزرق  ب) أحمر');
+                    hudStatus.innerText = 'سؤال العلوم جاهز للحل';
+                    speak('سؤال جديد، ما هو لون السماء الصافية؟');
+                } else {
+                    quizText.setAttribute('value', 'سؤال: كم ناتج 2 + 3 ؟\n(انظر هنا للإجابة)');
+                    hudStatus.innerText = 'جاهز للحل على الطاولة';
+                    speak('سؤال الحساب الأساسي جاهز.');
+                }
+            });
+        }
+
+        function initBackCameraHandTracking() {
+            const videoElement = document.createElement('video');
+            videoElement.setAttribute('playsinline', '');
+            videoElement.setAttribute('autoplay', '');
+            videoElement.style.position = 'fixed';
+            videoElement.style.top = '0';
+            videoElement.style.left = '0';
+            videoElement.style.width = '320px';
+            videoElement.style.height = '240px';
+            videoElement.style.opacity = '0.01';
+            videoElement.style.zIndex = '-999';
+            document.body.appendChild(videoElement);
+
+            const canvasElement = document.getElementById('hand-canvas');
+            const canvasCtx = canvasElement.getContext('2d');
+
+            navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } } 
+            })
+            .then(async (stream) => {
+                videoElement.srcObject = stream;
+                await videoElement.play().catch(e => {});
+                
+                const hands = new Hands({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+                });
+
+                hands.setOptions({
+                    maxNumHands: 2,
+                    modelComplexity: 1,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
+
+                hands.onResults((results) => {
+                    canvasElement.width = window.innerWidth;
+                    canvasElement.height = window.innerHeight;
+
+                    canvasCtx.save();
+                    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+                    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                        for (const landmarks of results.multiHandLandmarks) {
+                            const w = window.innerWidth;
+                            const h = window.innerHeight;
+                            const pts = landmarks.map(l => ({ x: l.x * w, y: l.y * h }));
+
+                            canvasCtx.beginPath();
+                            canvasCtx.moveTo(pts[0].x, pts[0].y);
+
+                            canvasCtx.lineTo(pts[1].x, pts[1].y);
+                            canvasCtx.lineTo(pts[2].x, pts[2].y);
+                            canvasCtx.lineTo(pts[3].x, pts[3].y);
+                            canvasCtx.lineTo(pts[4].x, pts[4].y);
+                            canvasCtx.lineTo(pts[3].x, pts[3].y);
+                            canvasCtx.lineTo(pts[2].x, pts[2].y);
+
+                            canvasCtx.lineTo((pts[2].x + pts[5].x) / 2, ((pts[2].y + pts[5].y) / 2) + 12);
+
+                            canvasCtx.lineTo(pts[5].x, pts[5].y);
+                            canvasCtx.lineTo(pts[6].x, pts[6].y);
+                            canvasCtx.lineTo(pts[7].x, pts[7].y);
+                            canvasCtx.lineTo(pts[8].x, pts[8].y);
+                            canvasCtx.lineTo(pts[7].x, pts[7].y);
+                            canvasCtx.lineTo(pts[6].x, pts[6].y);
+
+                            canvasCtx.lineTo((pts[5].x + pts[9].x) / 2, ((pts[5].y + pts[9].y) / 2) + 15);
+
+                            canvasCtx.lineTo(pts[9].x, pts[9].y);
+                            canvasCtx.lineTo(pts[10].x, pts[10].y);
+                            canvasCtx.lineTo(pts[11].x, pts[11].y);
+                            canvasCtx.lineTo(pts[12].x, pts[12].y);
+                            canvasCtx.lineTo(pts[11].x, pts[11].y);
+                            canvasCtx.lineTo(pts[10].x, pts[10].y);
+
+                            canvasCtx.lineTo((pts[9].x + pts[13].x) / 2, ((pts[9].y + pts[13].y) / 2) + 15);
+
+                            canvasCtx.lineTo(pts[13].x, pts[13].y);
+                            canvasCtx.lineTo(pts[14].x, pts[14].y);
+                            canvasCtx.lineTo(pts[15].x, pts[15].y);
+                            canvasCtx.lineTo(pts[16].x, pts[16].y);
+                            canvasCtx.lineTo(pts[15].x, pts[15].y);
+                            canvasCtx.lineTo(pts[14].x, pts[14].y);
+
+                            canvasCtx.lineTo((pts[13].x + pts[17].x) / 2, ((pts[13].y + pts[17].y) / 2) + 15);
+
+                            canvasCtx.lineTo(pts[17].x, pts[17].y);
+                            canvasCtx.lineTo(pts[18].x, pts[18].y);
+                            canvasCtx.lineTo(pts[19].x, pts[19].y);
+                            canvasCtx.lineTo(pts[20].x, pts[20].y);
+                            canvasCtx.lineTo(pts[19].x, pts[19].y);
+                            canvasCtx.lineTo(pts[18].x, pts[18].y);
+                            canvasCtx.lineTo(pts[17].x, pts[17].y);
+
+                            canvasCtx.lineTo(pts[0].x, pts[0].y);
+                            canvasCtx.closePath();
+
+                            canvasCtx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+                            canvasCtx.lineWidth = 4;
+                            canvasCtx.lineJoin = 'round';
+                            canvasCtx.lineCap = 'round';
+                            canvasCtx.shadowColor = '#00ffcc';
+                            canvasCtx.shadowBlur = 15;
+                            canvasCtx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+                                                      
+                            canvasCtx.fill();
+                            canvasCtx.stroke();
+                        }
+                    }
+                    canvasCtx.restore();
+                });
+
+                async function sendVideoFrame() {
+                    if (videoElement.readyState >= 2 && videoElement.videoWidth > 0) {
+                        try {
+                            await hands.send({ image: videoElement });
+                        } catch (err) {}
+                    }
+                    requestAnimationFrame(sendVideoFrame);
+                }
+                sendVideoFrame();
+
+            })
+            .catch((err) => {
+                console.log("تعذر تشغيل الكاميرا: ", err);
+            });
+        }
+
+        function startExperience() {
+            initBackCameraHandTracking();
+
+            let elem = document.documentElement;
+            if (elem.requestFullscreen) {
+                elem.requestFullscreen().catch(err => {});
+            } else if (elem.webkitRequestFullscreen) {
+                elem.webkitRequestFullscreen();
+            }
+
+            if (screen.orientation && screen.orientation.lock) {
+                screen.orientation.lock('landscape').catch(err => {});
+            }
+
+            let video = document.getElementById('introVideo');
+            video.play().then(() => {
+                video.pause();
+                video.currentTime = 0;
+            }).catch(err => {});
+
+            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('vr-scene-container').style.display = 'block';
+            document.getElementById('left-hud').style.display = 'block';
+            
+            let countdownEl = document.getElementById('countdown-overlay');
+            countdownEl.style.display = 'flex';
+
+            let count = 5;
+            countdownEl.innerText = count;
+
+            let timer = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    countdownEl.innerText = count;
+                } else if (count === 0) {
+                    countdownEl.innerText = "GO!";
+                } else {
+                    clearInterval(timer);
+                    countdownEl.style.display = 'none';
+                    launchVideoInCenter();
+                }
+            }, 1000);
+        }
+
+        function launchVideoInCenter() {
+            let video = document.getElementById('introVideo');
+            let cameraRig = document.getElementById('cameraRig');
+            let videoPlane = document.getElementById('videoPlane');
+            let welcomeText = document.getElementById('welcomeText');
+
+            let cameraObj = cameraRig.object3D;
+            cameraObj.updateMatrixWorld();
+
+            let distance = 2.0;
+            let pos = new THREE.Vector3(0, 0, -distance);
+            pos.applyQuaternion(cameraObj.quaternion);
+            pos.add(cameraObj.position);
+
+            videoPlane.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
+            welcomeText.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
+
+            videoPlane.object3D.quaternion.copy(cameraObj.quaternion);
+            welcomeText.object3D.quaternion.copy(cameraObj.quaternion);
+
+            videoPlane.setAttribute('visible', 'true');
+            video.currentTime = 0;
+            
+            video.play().catch(error => {
+                onVideoEnded();
+            });
+
+            video.onended = function() {
+                onVideoEnded();
+            };
+        }
+
+        function onVideoEnded() {
+            let videoPlane = document.getElementById('videoPlane');
+            let welcomeText = document.getElementById('welcomeText');
+
+            videoPlane.setAttribute('visible', 'false');
+            welcomeText.setAttribute('value', 'Welcome to VR Mr Malek!');
+            welcomeText.setAttribute('visible', 'true');
+
+            speak('أهلاً بك يا ملك في منصة الواقع الافتراضي التعليمية!');
+
+            setTimeout(() => {
+                welcomeText.setAttribute('visible', 'false');
+                document.getElementById('environmentSky').setAttribute('color', '#87CEEB');
+                document.getElementById('schoolClassroom').setAttribute('visible', 'true');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
